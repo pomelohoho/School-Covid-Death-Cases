@@ -1,0 +1,161 @@
+---
+title: "Medicare Cleaning"
+author: "Pom"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+```{r}
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(shiny)
+library(leaflet)
+library(maps)
+#library(tidycensus)
+#library(plotROC)
+library(rpart)
+#library(rpart.plot)
+#library(randomForest)
+#library(FNN)
+library(sf)
+require(tibble)
+require(mosaic)
+require(reshape2)
+require(leaps)
+require(corrplot)
+require(car)
+library(ggplot2)
+library(plotly)
+```
+
+## Data Download
+
+```{r}
+
+learning_mode <- read.csv("https://www.dropbox.com/scl/fi/kmt6d7yeapbq1gf7nu1wp/All-School-Learning-Model-Data-Cleaned.csv?rlkey=aie4fwziil0lpz83y39iogia8&dl=1")
+school_case <- read.csv("https://www.dropbox.com/scl/fi/lgi1scwba1kjp3v9fwpjg/All-State-School-and-District-COVID-19-Case-Dataa.csv?rlkey=huuij1xbfyzbeahrxekmtfw74&dl=1")
+masking_data <- read.csv("https://www.dropbox.com/scl/fi/uujnov1fw3g1gltpe7jj3/All-State-Masking-Data.csv?rlkey=f58hx595fzkxwhwx9rfhiwjrv&dl=1")
+school_closure <- read.csv("https://www.dropbox.com/scl/fi/8gxyw15z77boq6cvi8s9t/US-School-Closure.csv?rlkey=wtr8ytdyl7se0atiads4qqnkn&dl=1")
+NCES <- read.csv("https://www.dropbox.com/scl/fi/274ftjlxhfu8h7ncuh0v8/NCES.csv?rlkey=1gwf1k1dotfu61ixwll7u9d25&dl=1")
+cfr_data <- read.csv("https://www.dropbox.com/scl/fi/eim7dxb3sldoysrcjvivk/0511_merged.csv?rlkey=rc95emctr12iojlo8t8p4y3uj&dl=1") # 125481 rows
+
+# Load the shape files 
+
+districts <- st_read("~/EDGE_GEOCODE_PUBLICLEA_2021/Shapefiles_LEA/EDGE_GEOCODE_PUBLICLEA_2021.shp")
+
+school <- st_read("~/EDGE_GEOCODE_PUBLICSCH_2021/Shapefile_SCH/EDGE_GEOCODE_PUBLICSCH_2021.shp")
+
+county_spatial <- st_read("~/County_Spatial/cb_2018_us_county_500k.shp")
+
+NCES <- NCES %>% select(-DistrictName, -StateName, -Zip4Mailing, -ZipMailing)
+
+learning_mode2 <- left_join(learning_mode, NCES, by = "NCESDistrictID")
+```
+```{r}
+library(lubridate)
+# Assuming the format of 'TimePeriodStart' is 'm/d/y' (e.g., "8/31/20")
+# Convert 'TimePeriodStart' to a Date object
+learning_mode2$TimePeriodStart1 <- as.Date(learning_mode2$TimePeriodStart, format = "%m/%d/%y")
+
+# Function to assign the index based on the date
+assign_index <- function(date) {
+  # Check if the date is NA
+  if (is.na(date)) {
+    return(NA)
+  } else {
+    year <- as.numeric(format(date, "%Y"))
+    month <- as.numeric(format(date, "%m"))
+
+    if(year == 2020) {
+      return(month) # January 2020 is 1, December 2020 is 12
+    } else if(year == 2021) {
+      return(month + 12) # January 2021 is 13, December 2021 is 24
+    } else {
+      return(NA) # In case there are dates outside the 2020 - 2021 range
+    }
+  }
+}
+# Apply the function to create the index column
+learning_mode2$MonthIndex <- sapply(learning_mode2$TimePeriodStart1, assign_index)
+
+write_csv(learning_mode2, "learning_mode.csv")
+learning_mode3 <- read.csv("learning_mode.csv")
+# Function to calculate the mode (most common element)
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# Pad a zero in front for values with only 4 characters
+cfr_data$fips <- str_pad(cfr_data$fips, width = 5, side = "left", pad = "0")
+cfr_data$MonthIndex <- ceiling(cfr_data$week / 4)
+cfr_data2 <- cfr_data %>%
+  group_by(MonthIndex,fips) %>%
+  summarise(cases = sum(cases, na.rm = TRUE),
+            deaths = sum(deaths),
+            CFR = deaths/cases *100)
+cfr_data2 <- inner_join(cfr_data2,cfr_data, by = c("MonthIndex", "fips"))
+cfr_data2 <- cfr_data2 %>% select(-CFR.y,-deaths.y,-cases.y,-week)
+cfr_data2 <- cfr_data2 %>% group_by(fips,MonthIndex) %>%
+  summarise(across(everything(), mean, na.rm = TRUE))
+write_csv(cfr_data2, "cfr_data3.csv")
+cfr_data3 <- read.csv("cfr_data3.csv")
+
+# Pad a zero in front for values with only 4 characters
+learning_mode3$CountyFIPS <- str_pad(learning_mode3$CountyFIPS, width = 5, side = "left", pad = "0")
+
+learning_mode_data <- learning_mode3 %>% 
+  select(StateName, DistrictName, SchoolName, LearningModelStateCat, NCESSchoolID, MonthIndex, EnrollmentTotal, StateFIPS, CountyFIPS) %>%
+  filter(!is.na(LearningModelStateCat), LearningModelStateCat != "")
+
+county_learning_model <- learning_mode_data %>%
+  group_by(CountyFIPS, MonthIndex) %>%
+  summarise(MostCommonLearningMode = Mode(LearningModelStateCat))
+
+colnames(cfr_data3) <- sub("\\.x$", "", colnames(cfr_data3))
+# New column name
+new_column_name <- "fips"
+column_index <- which(colnames(county_learning_model) == "CountyFIPS")
+colnames(county_learning_model)[column_index] <- new_column_name
+# Pad a zero in front for values with only 4 characters
+cfr_data3$fips <- str_pad(cfr_data3$fips, width = 5, side = "left", pad = "0")
+
+learning <- left_join(cfr_data3,county_learning_model, by = c("MonthIndex","fips"))
+
+learning <- learning %>%
+  mutate(MostCommonLearningMode = ifelse(is.na(MostCommonLearningMode), "Not reported", MostCommonLearningMode))
+
+learning <- learning %>% filter(MostCommonLearningMode != "Not reported")
+
+learning <- learning %>%  mutate(MostCommonLearningMode = ifelse(startsWith(MostCommonLearningMode, "I"), "In Person", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(MostCommonLearningMode == "REMOTE", "Virtual", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "Remote"), "Virtual", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(startsWith(MostCommonLearningMode, "V"), "Virtual", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "In Person"), "In Person", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "In-Person"), "In Person", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "FaceToFace"), "In Person", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "Open"), "In Person", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "On-Site"), "In Person", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "H"), "Hybrid", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "Hybrid"), "Hybrid", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "Distance "), "Virtual", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "DISTANCE "), "Virtual", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "Classroom"), "In Person", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "Small Group"), "Small Groups", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "Standard"), "In Person", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "Full"), "In Person", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "Working"), "In Person", MostCommonLearningMode),
+                                                               MostCommonLearningMode = ifelse(str_detect(MostCommonLearningMode, "Closed"), "Closed", MostCommonLearningMode)) 
+
+learning <- learning %>%
+  select(-cases, -deaths, -female, -Series_Complete_Pop_Pct_SVI, -Completeness_pct)
+
+final_data <- learning[complete.cases(learning), ]
+write.csv(final_data, "Final Medicare Data With SChool Covid.csv")
+```
