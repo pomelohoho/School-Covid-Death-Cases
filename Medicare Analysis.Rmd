@@ -29,7 +29,7 @@ library(plotly)
 ```
 ```{r}
 library(readr)
-final_data <- read_csv("Final Medicare Data With SChool Covid.csv")
+final_data <- read_csv("https://www.dropbox.com/scl/fi/qyaqcvaycna15bws67dwg/Final-Medicare-Data-With-SChool-Covid.csv?rlkey=doqdolea5jzdgm039c1h5a7a3&dl=1")
 # divide data into two columns, excluding learningmode 
 set_1 <- final_data %>%
   select(3:21)
@@ -146,3 +146,4 @@ ggplot(aes(x = Administered_Dose1_Pop_Pct, y = res), data = ess_selected) +
 qqnorm(ess_selected$res)
 qqline(ess_selected$res)
 ```
+
