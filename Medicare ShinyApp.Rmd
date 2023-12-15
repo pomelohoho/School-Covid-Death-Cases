@@ -1,0 +1,88 @@
+---
+title: "Medicare ShinyApp"
+author: "Pom"
+date: "2023-12-15"
+output: html_document
+---
+```{r}
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(shiny)
+library(leaflet)
+library(maps)
+library(rpart)
+library(sf)
+require(tibble)
+require(mosaic)
+require(reshape2)
+require(leaps)
+require(corrplot)
+require(car)
+library(ggplot2)
+library(plotly)
+library(readr)
+```
+```{r}
+county_final <- read_csv("county_final.csv")
+# Merging data
+county_final <- merge(county_spatial, learning, by.x = "GEOID", by.y = "fips")
+#write.csv(county_final, "county_final.csv")
+
+# Plotting with ggplot2
+ggplot(data = county_sf) +
+  geom_sf(aes(color = MostCommonLearningMode)) +
+  theme_minimal() +
+  theme(text = element_text(size = 12),
+        axis.text = element_blank(),  # Hiding axis text for a map
+        axis.title = element_blank()) +  # Hiding axis title for a map
+  labs(title = "Most Common Learning Mode by County",
+       color = "Learning Mode")
+
+ui <- fluidPage(
+  titlePanel("Interactive Map of Learning Modes by County"),
+  sidebarLayout(
+    sidebarPanel(
+      sliderInput("monthInput", "MonthIndex:",
+                  min = min(county_final$MonthIndex, na.rm = TRUE),
+                  max = max(county_final$MonthIndex, na.rm = TRUE),
+                  value = 8,
+                  step = 1)
+    ),
+    mainPanel(
+      plotlyOutput("mapPlot")
+    )
+  )
+)
+
+server <- function(input, output) {
+  output$mapPlot <- renderPlotly({
+    # Filter data based on selected year
+    filtered_data <- county_final %>%
+                     filter(MonthIndex == input$monthInput) %>%
+                     st_as_sf(wkt = "geometry")  
+     # Check if the filtered data is empty
+    if (nrow(filtered_data) == 0) {
+      # Return a blank map
+      p <- ggplot() +
+           theme_void() +
+           labs(title = paste("No Data Available for Month", input$monthInput))
+    } else {
+      # Customizing hover text - adjust according to your dataset
+      filtered_data$hover_text <- paste("County: ", filtered_data$NAME, "State: ", filtered_data$STATEFP, "\nMost common learning mode: ", filtered_data$MostCommonLearningMode)}
+   
+    # Plot
+    ggplotly(
+      ggplot(data = filtered_data) +
+      geom_sf(aes(fill = MostCommonLearningMode), size = 0.1) +
+      theme_minimal() +
+      labs(title = paste("Most Common Learning Mode in Month", input$monthInput),
+           fill = "Learning Mode")
+    )
+  })
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+```
