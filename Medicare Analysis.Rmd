@@ -16,12 +16,7 @@ library(stringr)
 library(shiny)
 library(leaflet)
 library(maps)
-#library(tidycensus)
-#library(plotROC)
 library(rpart)
-#library(rpart.plot)
-#library(randomForest)
-#library(FNN)
 library(sf)
 require(tibble)
 require(mosaic)
@@ -150,79 +145,4 @@ ggplot(aes(x = Administered_Dose1_Pop_Pct, y = res), data = ess_selected) +
 # residual normal probability plot
 qqnorm(ess_selected$res)
 qqline(ess_selected$res)
-```
-
-```{r}
-#graphing
-county_final <- merge(county_spatial, learning, by.x = "GEOID", by.y = "fips")
-county_sf <- st_as_sf(county_final, wkt = "geometry")
-
-# Plotting the map with ggplot2
-ggplot(data = county_sf) +
-  geom_sf(aes(color = MostCommonLearningMode)) +
-  theme_minimal() +
-  theme(text = element_text(size = 12),  # Set a default font size
-        axis.text = element_text(size = 12),  # Set axis text size
-        axis.title = element_text(size = 12)) +  # Set axis title size
-  labs(title = "Most Common Learning Mode by District",
-       fill = "Learning Mode")
-
-# Convert sf object to a dataframe
-districts_df <- st_set_geometry(county_sf, NULL)
-districts_df <- cbind(districts_df, st_coordinates(st_geometry(county_sf)))# Convert sf object to a dataframe
-
-# Create the plot
-
-colors <- c("In Person" = "blue", "Virtual" = "red", "Hybrid" = "green", "Small Group" = "yellow", "Level 5" = "black", "Level 1" = "white", "Level 3" = "grey", "Closed" = "pink")
-
-
-
-# Adjust 'district' and 'state' with the actual column names from your dataset
-districts_df$hover_text <- paste("District: ",districts_df$NAME, "\nCity: ", districts_df$CITY, "\nState: ", districts_df$STATE, "\nMost common learning mode: ", districts_df$MostCommonLearningMode)
-
-
-ui <- fluidPage(
-  titlePanel("Interactive Districts Map by Month Index"),
-  sidebarLayout(
-    sidebarPanel(
-      sliderInput("monthIndex",
-                  "Month Index:",
-                  min = min(districts_df$MonthIndex, na.rm = TRUE),
-                  max = max(districts_df$MonthIndex, na.rm = TRUE),
-                  value = 1)  # Set to a single value for one-way slider
-    ),
-    mainPanel(
-      plotlyOutput("mapPlot")
-    )
-  )
-)
-
-
-server <- function(input, output) {
-  output$mapPlot <- renderPlotly({
-    # Filter data based on slider input
-    filtered_data <- districts_df[districts_df$MonthIndex == input$monthIndex, ]
-    
-    # Plot
-    p <- plot_ly(filtered_data, 
-                 type = 'scattermapbox', 
-                 mode = 'markers',
-                 text = ~hover_text,
-                 hoverinfo = "text",
-                 lon = ~X, 
-                 lat = ~Y,
-                 marker = list(size = 10,
-                               color = ~colors[MostCommonLearningMode],
-                               colorscale = 'Viridis')) %>%
-      layout(mapbox = list(style = 'open-street-map'))
-    
-    p
-  })
-}
-
-# Run the application 
-shinyApp(ui = ui, server = server)
-write.csv(districts_enriched, "C:\\Users\\Rodolfo G\\Downloads\\district_enriched.csv" )
-
-
 ```
