@@ -25,7 +25,7 @@ library(plotly)
 library(readr)
 ```
 ```{r}
-county_final <- read_csv("county_final.csv")
+county_final <- read_csv("https://www.dropbox.com/scl/fi/za7nqivq2wc9zoiusw7z6/county_final.csv?rlkey=o9qf0kr5i844v6nsuh7a3fgub&dl=1")
 # Merging data
 county_final <- merge(county_spatial, learning, by.x = "GEOID", by.y = "fips")
 #write.csv(county_final, "county_final.csv")
